@@ -1,0 +1,277 @@
+# Android Security Testing
+
+> Mobile application penetration testing methodology for Android apps.
+
+---
+
+## 🛠️ Setup
+
+```bash
+# Required tools
+- jadx (decompiler)
+- apktool (decompile/recompile)
+- adb (Android Debug Bridge)
+- frida (dynamic instrumentation)
+- objection (frida-based mobile testing)
+- Burp Suite (traffic interception)
+- MobSF (automated analysis)
+- drozer (attack framework)
+```
+
+---
+
+## 📦 APK Analysis (Static)
+
+```bash
+# Decompile APK with jadx (best for Java code)
+jadx -d output_dir target.apk
+
+# Decompile with apktool (smali code + resources)
+apktool d target.apk -o output_dir
+
+# Recompile after modification
+apktool b output_dir -o modified.apk
+
+# Sign modified APK
+keytool -genkey -v -keystore my.keystore -alias alias_name -keyalg RSA -keysize 2048 -validity 10000
+jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 -keystore my.keystore modified.apk alias_name
+zipalign -v 4 modified.apk final.apk
+
+# Extract APK (it's a zip)
+unzip target.apk -d extracted/
+```
+
+---
+
+## 🔎 Static Analysis - What to Look For
+
+```bash
+# Find hardcoded secrets
+grep -r "password\|secret\|api_key\|token\|key=" output_dir/
+grep -r "AWS\|firebase\|google" output_dir/
+grep -r "http://\|https://" output_dir/   # API endpoints
+
+# Check AndroidManifest.xml
+cat output_dir/AndroidManifest.xml
+
+# Look for:
+# - android:debuggable="true"
+# - android:allowBackup="true"  
+# - exported components (android:exported="true")
+# - custom permissions
+# - intent filters
+
+# Find SQLite databases in decompiled code
+grep -r "SQLiteDatabase\|openDatabase\|execSQL" output_dir/
+
+# Find webview usage
+grep -r "WebView\|setJavaScriptEnabled\|addJavascriptInterface" output_dir/
+
+# Find crypto usage
+grep -r "AES\|DES\|MD5\|SHA1\|SecretKeySpec" output_dir/
+
+# Find logging (may leak sensitive data)
+grep -r "Log.d\|Log.e\|Log.v\|System.out.print" output_dir/
+```
+
+---
+
+## 📱 Dynamic Analysis with ADB
+
+```bash
+# Connect device
+adb devices
+adb connect 192.168.1.x:5555   # wireless
+
+# Install APK
+adb install target.apk
+
+# Shell access
+adb shell
+
+# Pull files from device
+adb pull /data/data/com.target.app/ ./app_data/
+
+# Push files to device
+adb push burp_cert.cer /sdcard/
+
+# Logcat (real-time logs)
+adb logcat | grep "com.target.app"
+adb logcat -s "TAG_NAME"
+
+# List installed apps
+adb shell pm list packages | grep target
+
+# Get APK path
+adb shell pm path com.target.app
+
+# Pull APK from device
+adb pull /data/app/com.target.app-1/base.apk
+
+# Launch activity
+adb shell am start -n com.target.app/.MainActivity
+
+# Send intent
+adb shell am broadcast -a com.target.app.ACTION --es key value
+```
+
+---
+
+## 🔓 SSL Pinning Bypass
+
+```bash
+# Using objection
+objection --gadget com.target.app explore
+# Then in objection shell:
+android sslpinning disable
+
+# Using Frida script
+frida -U -f com.target.app --no-pause -l ssl_bypass.js
+
+# Common SSL bypass scripts:
+# - https://github.com/WoWoX/frida-multiple-unpinning
+# - https://github.com/httptoolkit/frida-android-unpinning
+
+# Using apktool (manual)
+# Find and modify certificate pinning code in smali
+# Or add network_security_config.xml
+
+# network_security_config.xml (for older bypasses)
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+  <base-config>
+    <trust-anchors>
+      <certificates src="system" />
+      <certificates src="user" />
+    </trust-anchors>
+  </base-config>
+</network-security-config>
+```
+
+---
+
+## 🪝 Frida Dynamic Instrumentation
+
+```bash
+# Start frida server on device
+adb push frida-server /data/local/tmp/
+adb shell chmod 755 /data/local/tmp/frida-server
+adb shell /data/local/tmp/frida-server &
+
+# List running apps
+frida-ps -U
+
+# Attach to running app
+frida -U -n "App Name" -l script.js
+
+# Spawn app
+frida -U -f com.target.app -l script.js --no-pause
+
+# Example Frida script - Hook function
+Java.perform(function() {
+  var MainActivity = Java.use('com.target.app.MainActivity');
+  MainActivity.checkPassword.implementation = function(password) {
+    console.log('Password checked: ' + password);
+    return true;  // bypass check
+  };
+});
+
+# Dump all method calls
+Java.perform(function() {
+  Java.enumerateLoadedClasses({
+    onMatch: function(name) { console.log(name); },
+    onComplete: function() {}
+  });
+});
+```
+
+---
+
+## 🕵️ Traffic Interception (Burp Suite)
+
+```bash
+# Setup proxy on device
+# Settings -> WiFi -> Proxy -> Manual
+# Host: 192.168.x.x (your IP)
+# Port: 8080
+
+# Install Burp CA certificate
+# Download from http://burp
+# Install on device (Settings -> Security -> Install certificate)
+
+# For Android 7+ (user certs not trusted by default)
+# Option 1: Root device + move cert to system store
+adb shell su -c "mount -o rw,remount /system"
+adb push burp.cer /system/etc/security/cacerts/
+adb shell chmod 644 /system/etc/security/cacerts/burp.cer
+
+# Option 2: Patch manifest (add network_security_config)
+# Option 3: Use Frida to bypass SSL pinning
+```
+
+---
+
+## 🗄️ Data Storage Security
+
+```bash
+# Check shared preferences (after adb shell)
+ls /data/data/com.target.app/shared_prefs/
+cat /data/data/com.target.app/shared_prefs/prefs.xml
+
+# Check databases
+ls /data/data/com.target.app/databases/
+sqlite3 /data/data/com.target.app/databases/app.db
+.tables
+SELECT * FROM users;
+
+# Check files directory
+ls /data/data/com.target.app/files/
+
+# Check external storage
+ls /sdcard/Android/data/com.target.app/
+
+# Check for world-readable files
+find /data/data/com.target.app -perm -o+r
+```
+
+---
+
+## 📋 Android Pentesting Checklist
+
+- [ ] Static analysis with jadx/MobSF
+- [ ] Check AndroidManifest.xml for misconfigurations
+- [ ] Find hardcoded secrets/API keys
+- [ ] Test exported components
+- [ ] Intercept traffic with Burp Suite
+- [ ] Bypass SSL pinning
+- [ ] Check local storage (SharedPrefs, SQLite, files)
+- [ ] Test WebView for XSS/JS injection
+- [ ] Check deep links for parameter injection
+- [ ] Test backup functionality
+- [ ] Check for sensitive data in logcat
+- [ ] Test intent-based attacks with drozer
+- [ ] Check for root detection and bypass
+
+---
+
+## 🧠 Tips
+
+- **MobSF** automates most static analysis — run it first
+- **objection** is Frida without writing scripts — very fast
+- Always check **logcat** during app usage — devs often leave debug logs
+- **Exported activities** can be launched without authentication
+- **Deep links** (custom schemas) often have injection vulnerabilities
+- Check `.well-known/assetlinks.json` for domain validation issues
+
+---
+
+## 📚 References
+
+- [HackTricks Android](https://book.hacktricks.xyz/mobile-pentesting/android-app-pentesting)
+- [OWASP Mobile Top 10](https://owasp.org/www-project-mobile-top-10/)
+- [Frida Documentation](https://frida.re/docs/)
+- [MobSF GitHub](https://github.com/MobSF/Mobile-Security-Framework-MobSF)
+
+---
+
+*Notes by [@mtsboy01](https://github.com/mtsboy01) | MTS-SECURITY*
